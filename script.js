@@ -1,66 +1,108 @@
-// Локальное хранилище для пользователей и сообщений
-let users = JSON.parse(localStorage.getItem('users')) || [];
-let messages = JSON.parse(localStorage.getItem('messages')) || [];
+// Импорт Firebase модулей
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+import { getFirestore, collection, addDoc, onSnapshot, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+
+// Конфигурация Firebase
+const firebaseConfig = {
+    apiKey: "AIzaSyBnxbzgVDndgv5tb9hTf9-_s6Upr1wngU0",
+    authDomain: "meineproject-5d634.firebaseapp.com",
+    projectId: "meineproject-5d634",
+    storageBucket: "meineproject-5d634.firebasestorage.app",
+    messagingSenderId: "1064508732292",
+    appId: "1:1064508732292:web:edb07e5a1a8c829c21e3d1",
+    measurementId: "G-7J8FW0DN4S"
+};
+
+// Инициализация Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app); // Инициализация Firestore
+const auth = getAuth(app); // Инициализация Authentication
 
 // Регистрация
 document.getElementById('registerForm')?.addEventListener('submit', function(event) {
     event.preventDefault();
-    const username = document.getElementById('username').value;
+    const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
+    const username = document.getElementById('username').value; // Имя пользователя
 
-    if (users.find(user => user.username === username)) {
-        showError('Пользователь уже существует');
-        return;
-    }
-
-    users.push({ username, password });
-    localStorage.setItem('users', JSON.stringify(users));
-    showSuccess('Регистрация успешна');
-    setTimeout(() => {
-        window.location.href = 'login.html';
-    }, 2000); // Перенаправление через 2 секунды
+    // Создание пользователя через Firebase Authentication
+    createUserWithEmailAndPassword(auth, email, password)
+        .then((userCredential) => {
+            // Сохраняем имя пользователя в Firestore
+            addDoc(collection(db, 'users'), {
+                email: email,
+                username: username
+            }).then(() => {
+                showSuccess('Регистрация успешна');
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 2000);
+            });
+        })
+        .catch((error) => {
+            showError(error.message); // Показ ошибки, если регистрация не удалась
+        });
 });
 
 // Вход
 document.getElementById('loginForm')?.addEventListener('submit', function(event) {
     event.preventDefault();
-    const username = document.getElementById('username').value;
+    const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
 
-    const user = users.find(user => user.username === username && user.password === password);
-    if (user) {
-        localStorage.setItem('currentUser', username);
-        window.location.href = 'messages.html';
-    } else {
-        showError('Неверное имя пользователя или пароль');
-    }
+    // Авторизация пользователя через Firebase Authentication
+    signInWithEmailAndPassword(auth, email, password)
+        .then((userCredential) => {
+            // Ищем пользователя в Firestore по email
+            const userQuery = query(collection(db, 'users'), where('email', '==', email));
+            getDocs(userQuery).then((querySnapshot) => {
+                querySnapshot.forEach((doc) => {
+                    // Сохраняем имя пользователя в localStorage
+                    localStorage.setItem('currentUser', doc.data().username);
+                    window.location.href = 'messages.html';
+                });
+            });
+        })
+        .catch((error) => {
+            showError(error.message); // Показ ошибки, если вход не удался
+        });
 });
 
 // Отправка сообщения
 document.getElementById('messageForm')?.addEventListener('submit', function(event) {
     event.preventDefault();
     const message = document.getElementById('message').value;
-    const username = localStorage.getItem('currentUser');
-    const time = new Date().toLocaleTimeString();
+    const user = localStorage.getItem('currentUser'); // Имя пользователя
+    const time = new Date().toLocaleTimeString(); // Время отправки сообщения
 
-    messages.push({ username, message, time });
-    localStorage.setItem('messages', JSON.stringify(messages));
-    document.getElementById('message').value = '';
-    displayMessages();
+    // Сохранение сообщения в Firestore
+    addDoc(collection(db, 'messages'), { user, message, time })
+        .then(() => {
+            document.getElementById('message').value = ''; // Очистка поля ввода
+        })
+        .catch((error) => {
+            console.error('Ошибка отправки сообщения: ', error);
+        });
 });
 
 // Отображение сообщений
 function displayMessages() {
     const messagesDiv = document.getElementById('messages');
     messagesDiv.innerHTML = '';
-    messages.forEach(msg => {
-        const messageElement = document.createElement('div');
-        messageElement.innerHTML = `
-            <strong>${msg.username}</strong> 
-            <span class="time">${msg.time}</span>: 
-            ${msg.message}
-        `;
-        messagesDiv.appendChild(messageElement);
+
+    // Получение сообщений из Firestore в реальном времени
+    onSnapshot(collection(db, 'messages'), (snapshot) => {
+        snapshot.forEach((doc) => {
+            const msg = doc.data();
+            const messageElement = document.createElement('div');
+            messageElement.innerHTML = `
+                <strong>${msg.user}</strong> 
+                <span class="time">${msg.time}</span>: 
+                ${msg.message}
+            `;
+            messagesDiv.appendChild(messageElement);
+        });
     });
 }
 
@@ -68,9 +110,9 @@ function displayMessages() {
 function showError(message) {
     const errorDiv = document.getElementById('error-message');
     errorDiv.textContent = message;
-    errorDiv.style.display = 'block'; // Показываем блок ошибки
+    errorDiv.style.display = 'block'; // Показ блока ошибки
     setTimeout(() => {
-        errorDiv.style.display = 'none'; // Скрываем через 3 секунды
+        errorDiv.style.display = 'none'; // Скрытие через 3 секунды
     }, 3000);
 }
 
@@ -78,13 +120,13 @@ function showError(message) {
 function showSuccess(message) {
     const successDiv = document.getElementById('success-message');
     successDiv.textContent = message;
-    successDiv.style.display = 'block'; // Показываем блок успеха
+    successDiv.style.display = 'block'; // Показ блока успеха
     setTimeout(() => {
-        successDiv.style.display = 'none'; // Скрываем через 3 секунды
+        successDiv.style.display = 'none'; // Скрытие через 3 секунды
     }, 3000);
 }
 
-// Показ сообщений при загрузке страницы
+// Отображение сообщений при загрузке страницы
 if (window.location.pathname.endsWith('messages.html')) {
     displayMessages();
 }
